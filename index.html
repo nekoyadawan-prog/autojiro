@@ -26,6 +26,12 @@
         .locked { opacity:.55; pointer-events:none; }
         .ticket-card { background:linear-gradient(135deg,#fef3c7,#fde68a); color:#422006; border:2px dashed #b45309; }
         @media (prefers-reduced-motion: reduce) { .animate-bounce,.animate-ping,.animate-pulse { animation:none !important; } }
+        
+        /* 追加: 右パネル用のカスタムスクロールバー */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #00f3ff; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col bg-slate-950 text-slate-100">
@@ -129,10 +135,11 @@
         </div>
     </section>
 
-    <!-- RIGHT: controls -->
-    <section class="lg:col-span-5 flex flex-col cyber-panel p-4 md:p-5 rounded-xl border border-slate-700/80 shadow-xl gap-4">
-        <div id="controls" class="space-y-4">
-
+    <!-- RIGHT: controls (修正: 高さ制限とスクロール対応) -->
+    <section class="lg:col-span-5 flex flex-col cyber-panel p-4 md:p-5 rounded-xl border border-slate-700/80 shadow-xl gap-4 lg:max-h-[calc(100vh-100px)] overflow-hidden">
+        
+        <!-- 修正: flex-1 overflow-y-auto を追加 -->
+        <div id="controls" class="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
             <div>
                 <div class="flex justify-between items-end border-b border-cyan-800/50 pb-2 mb-3">
                     <div>
@@ -180,7 +187,8 @@
             </div>
         </div>
 
-        <div class="mt-auto space-y-2">
+        <!-- 固定フッター (mt-auto で最下部に押し下げ) -->
+        <div class="mt-auto space-y-2 pt-2 border-t border-slate-700/50">
             <div class="flex justify-between items-center text-xs font-mono bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2">
                 <span class="text-slate-400">注文: <span id="sum-ticket" class="text-yellow-300"></span> / <span id="sum-call" class="text-cyan-300"></span></span>
                 <span id="sum-price" class="text-slate-100 font-orbitron font-bold"></span>
@@ -317,29 +325,62 @@ function priceOf(s) {
 
 /* ---- Call parser: 音声/テキストの「ヤサイマシマシニンニクアブラ」を解析 ---- */
 function parseCall(raw) {
-    let t = String(raw)
-        .replace(/野菜/g, 'ヤサイ').replace(/背脂|脂/g, 'アブラ').replace(/蒜/g, 'ニンニク')
+    let t = String(raw).normalize('NFKC')
+        // カラメの表記ゆれ (単独の「絡」「辛」なども拾う)
+        .replace(/辛め|辛目|辛い|辛|濃いめ|濃い目|濃ゆめ|絡め|絡み|絡|唐目|空目|加羅目|からめ|からみ|カラメ|カラミ|ガラメ/g, 'カラメ')
+        .replace(/野菜|八才|八歳/g, 'ヤサイ').replace(/背脂|脂|油/g, 'アブラ').replace(/蒜|大蒜/g, 'ニンニク')
         .replace(/増し|増/g, 'マシ').replace(/少なめ|少な目|少なく|少ない/g, 'スクナメ')
         .replace(/抜き|抜|無し|無/g, 'ナシ').replace(/麺/g, 'メン').replace(/半分/g, 'ハンブン')
-        .replace(/大盛り?/g, 'オオモリ').replace(/全/g, 'ゼン')
+        .replace(/大盛り?/g, 'オオモリ').replace(/小盛り?/g, 'ハンブン').replace(/全/g, 'ゼン')
+        .replace(/多め|多目|多い|多く|多く/g, 'オオメ').replace(/控えめ|控え目/g, 'ヒカエメ').replace(/少し/g, 'チョイ').replace(/人肉/g, 'ニンニク')
         .replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)) // ひら→カタ (漢字置換のあとに実行)
+        .replace(/ー/g, '')                       // 「アブラー」「カラメー」などの伸ばし棒を除去
+        .replace(/カラ(?!メ)/g, 'カラメ')         // 「カラ」「カラい」→ カラメ
         .replace(/イレマスカ|オネガイシマス|ハイ/g, '').replace(/[\s、。,.!！?？「」・]/g, '');
     const res = {}; const found = [];
-    if (t.includes('ゼンマシマシ')) { res.yasai = res.garlic = res.abura = 4; res.karame = 1; found.push('全マシマシ'); t = t.replace(/ゼンマシマシ/g, ''); }
-    else if (t.includes('ゼンマシ')) { res.yasai = res.garlic = res.abura = 3; res.karame = 1; found.push('全マシ'); t = t.replace(/ゼンマシ/g, ''); }
-    const keys = [['yasai', 'ヤサイ'], ['garlic', 'ニンニク'], ['abura', 'アブラ'], ['karame', 'カラメ'], ['men', 'メン']];
-    const hits = [];
-    keys.forEach(([k, w]) => { const i = t.indexOf(w); if (i >= 0) hits.push({ k, w, i }); });
-    hits.sort((a, b) => a.i - b.i);
-    hits.forEach((h, n) => {
-        const seg = t.slice(h.i + h.w.length, n + 1 < hits.length ? hits[n + 1].i : t.length);
-        found.push(h.w);
-        if (h.k === 'karame') { res.karame = /ナシ|ヌキ/.test(seg) ? 0 : 1; }
-        else if (h.k === 'men') { res.men = /ハンブン|スクナメ|ハーフ/.test(seg) ? 0 : /マシ|オオモリ|ダイ/.test(seg) ? 2 : 1; }
-        else {
-            res[h.k] = /マシマシ/.test(seg) ? 4 : /マシ|オオメ/.test(seg) ? 3
-                     : /スクナメ|チョイ|ヒカエメ/.test(seg) ? 1 : /ナシ|ヌキ/.test(seg) ? 0 : 2;
+    // 「全マシ」「全マシマシ」: 量を言わなかった項目の既定値になる (カラメも付く)
+    let zl = 2;
+    if (t.includes('ゼンマシマシ')) { zl = 4; res.yasai = res.garlic = res.abura = 4; res.karame = 1; found.push('全マシマシ'); t = t.replace(/ゼンマシマシ/g, ''); }
+    else if (t.includes('ゼンマシ')) { zl = 3; res.yasai = res.garlic = res.abura = 3; res.karame = 1; found.push('全マシ'); t = t.replace(/ゼンマシ/g, ''); }
+
+    // --- トークン化: キーワード(K) と 修飾語(M) を出てきた順に並べる ---
+    const KEY = { 'ヤサイ': 'yasai', 'ニンニク': 'garlic', 'アブラ': 'abura', 'カラメ': 'karame', 'メン': 'men' };
+    const tokens = [];
+    const re = /(ヤサイ|ニンニク|アブラ|カラメ|メン)|(マシマシ|マシ|オオメ|オオモリ|スクナメ|チョイ|ヒカエメ|ハンブン|ハーフ|ナシ|ヌキ)/g;
+    let m;
+    while ((m = re.exec(t))) tokens.push(m[1] ? { type: 'K', word: m[1], k: KEY[m[1]], mod: null } : { type: 'M', word: m[2] });
+    const MEN_ONLY = /^(ハンブン|ハーフ|オオモリ)$/;   // 麺にしか付かない修飾語
+    const keyIdx = tokens.map((x, i) => x.type === 'K' ? i : -1).filter(i => i >= 0);
+    const near = (i, dir, pred) => {                     // i から dir 方向で最も近い条件に合うキーワード
+        for (let j = i + dir; j >= 0 && j < tokens.length; j += dir) if (tokens[j].type === 'K' && pred(tokens[j])) return tokens[j];
+        return null;
+    };
+    tokens.forEach((tk, i) => {
+        if (tk.type !== 'M') return;
+        const prev = tokens[i - 1];
+        // 「カラメナシ」「カラメ抜き」: 直前がカラメで「ナシ」なら取り消し
+        if (/^(ナシ|ヌキ)$/.test(tk.word) && prev && prev.type === 'K' && prev.k === 'karame') { prev.mod = tk.word; return; }
+        let target;
+        if (MEN_ONLY.test(tk.word)) {
+            // 麺専用: 最も近い「麺」へ。無ければ「麺」を補う
+            target = near(i, -1, x => x.k === 'men') || near(i, 1, x => x.k === 'men');
+            if (!target) { target = { type: 'K', word: 'メン', k: 'men', mod: null }; tokens.push(target); }
+        } else {
+            // 修飾語は「直前のキーワード」を優先、すでに修飾済みなら「直後のキーワード」へ
+            // (例: ヤサイマシマシ / マシマシヤサイ / マシマシ ヤサイ マシ ニンニク)
+            const free = x => x.k !== 'karame' && !x.mod;
+            target = near(i, -1, free) || near(i, 1, free);
         }
+        if (target) target.mod = tk.word;
+    });
+
+    const level5 = w => /^マシマシ$/.test(w) ? 4 : /^(マシ|オオメ)$/.test(w) ? 3 : /^(スクナメ|チョイ|ヒカエメ)$/.test(w) ? 1 : /^(ナシ|ヌキ)$/.test(w) ? 0 : 2;
+    tokens.forEach(tk => {
+        if (tk.type !== 'K') return;
+        found.push(tk.word);
+        if (tk.k === 'karame') res.karame = /^(ナシ|ヌキ)$/.test(tk.mod || '') ? 0 : 1;
+        else if (tk.k === 'men') res.men = /^(ハンブン|ハーフ|スクナメ|ヒカエメ)$/.test(tk.mod || '') ? 0 : /^(マシ|マシマシ|オオモリ|オオメ)$/.test(tk.mod || '') ? 2 : 1;
+        else res[tk.k] = tk.mod ? level5(tk.mod) : zl;
     });
     if (!found.length) return null;
     return { state: Object.assign({}, CALL_DEFAULTS, res), found };
@@ -1069,21 +1110,44 @@ function setupVoiceInput() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const mic = $('mic-btn');
     if (!SR) { mic.disabled = true; mic.classList.add('opacity-40'); mic.title = 'このブラウザは音声認識に対応していません'; return; }
+    
     let rec = null, listening = false;
     mic.addEventListener('click', () => {
         if (busy) return;
         if (listening && rec) { rec.stop(); return; }
-        rec = new SR(); rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 3;
+        rec = new SR(); rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 5;
+        
         rec.onstart = () => { listening = true; mic.classList.add('active'); appendLog('聴き取り中... 「ヤサイマシマシニンニクアブラ」などと話してください', 'text-yellow-300'); };
         rec.onend = () => { listening = false; mic.classList.remove('active'); };
-        rec.onerror = e => appendLog('音声認識エラー: ' + esc(e.error), 'text-red-400');
+        
+        // 修正: ネットワークエラー等のハンドリング
+        rec.onerror = e => {
+            appendLog('音声認識エラー: ' + esc(e.error), 'text-red-400');
+            if (e.error === 'network') {
+                appendLog('※このブラウザは音声認識サーバー(Google等)に接続できません。ChromeまたはEdgeをお使いください。', 'text-amber-400');
+            } else if (e.error === 'not-allowed') {
+                appendLog('※マイクの使用が許可されていません。ブラウザの設定を確認してください。', 'text-amber-400');
+            } else if (e.error === 'no-speech') {
+                appendLog('※音声が検出されませんでした。もう一度お試しください。', 'text-amber-400');
+            }
+        };
+        
         rec.onresult = e => {
             const alts = Array.from(e.results[0]).map(a => a.transcript);
             $('call-input').value = alts[0];
-            // 認識候補のうちコールとして解釈できる最初のものを採用
-            for (const a of alts) if (applyCallInput(a, '音声認識')) return;
+            appendLog('認識候補: ' + alts.map(esc).join(' / '), 'text-slate-500');
+            // 認識できたキーワード数が最も多い候補を採用
+            let best = null, bestRaw = '';
+            for (const a of alts) {
+                const r = parseCall(a);
+                if (r && (!best || r.found.length > best.found.length)) { best = r; bestRaw = a; }
+            }
+            if (best) applyCallInput(bestRaw, '音声認識');
+            else appendLog('音声認識: コールを認識できませんでした。', 'text-red-400');
         };
-        try { rec.start(); } catch (err) {}
+        try { rec.start(); } catch (err) {
+            appendLog('音声認識の開始に失敗しました。', 'text-red-400');
+        }
     });
 }
 
