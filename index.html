@@ -383,7 +383,16 @@ function parseCall(raw) {
         else res[tk.k] = tk.mod ? level5(tk.mod) : zl;
     });
     if (!found.length) return null;
-    return { state: Object.assign({}, CALL_DEFAULTS, res), found };
+    const out = Object.assign({}, CALL_DEFAULTS, res);
+    // 聞き取った内容を、初期値と同じ「普通」も含めてすべて書き出す (表示用)
+    const detail = [];
+    tokens.forEach(tk => {
+        if (tk.type !== 'K') return;
+        const g = GROUPS.find(x => x.key === tk.k);
+        detail.push(tk.k === 'karame' ? (out.karame ? 'カラメ' : 'カラメなし') : tk.k === 'men' ? g.labels[out.men] : g.name + g.labels[out[tk.k]]);
+    });
+    if (res.karame && !tokens.some(x => x.type === 'K' && x.k === 'karame')) detail.push('カラメ');   // 全マシ由来
+    return { state: out, found, detail };
 }
 
 /* ============================================================
@@ -1102,7 +1111,8 @@ function applyCallInput(raw, source) {
     const r = parseCall(raw);
     if (!r) { appendLog(`${source}: 「${esc(raw)}」からコールを認識できませんでした。`, 'text-red-400'); return false; }
     Object.assign(state, r.state); updateUI();
-    appendLog(`${source}「${esc(raw)}」→ ${esc(callText(state))}`, 'text-cyan-300');
+    appendLog(`${source}「${esc(raw)}」→ ${esc(r.detail.join(' / ') || callText(state))}`, 'text-cyan-300');
+    if (r.detail.length && callText(r.state) === 'そのまま') appendLog('※量を言わなかった項目は「普通」です。変えたいときは「マシ」「少なめ」などを付けてください。', 'text-slate-400');
     sound.playServo(.1, 1400); return true;
 }
 
